@@ -1,7 +1,10 @@
-# Modelos pre-treinados e pesos treinados (binarios grandes; os pre-treinados
-# sao baixados automaticamente pelo Ultralytics e os treinados sao
-# reproduziveis rodando os scripts de treino deste repositorio)
+# Modelos pre-treinados (baixados automaticamente pelo Ultralytics) e
+# checkpoints intermediarios (last.pt, backups duplicados) - nao versionados.
+# Os pesos finais de cada treino (best.pt) ficam liberados abaixo via Git LFS,
+# para nao ser necessario re-treinar do zero.
 *.pt
+!PKLot/runs_obb/pklot_car_vacant/weights/best.pt
+!PKLot/runs_obb/car_only_pklot_carpk/weights/best.pt
 
 # Midias de teste (video/imagens grandes usadas so para validacao manual)
 midias/
