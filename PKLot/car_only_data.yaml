@@ -1,0 +1,6 @@
+path: C:/UFABC/TCC/PKLot
+train: car_only_train.txt
+val: car_only_val.txt
+
+names:
+  0: car

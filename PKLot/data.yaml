@@ -1,0 +1,7 @@
+path: C:/UFABC/TCC/PKLot
+train: train.txt
+val: val.txt
+
+names:
+  0: car
+  1: vacant

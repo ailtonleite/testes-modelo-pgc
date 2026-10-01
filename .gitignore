@@ -1,0 +1,21 @@
+# Modelos pre-treinados e pesos treinados (binarios grandes; os pre-treinados
+# sao baixados automaticamente pelo Ultralytics e os treinados sao
+# reproduziveis rodando os scripts de treino deste repositorio)
+*.pt
+
+# Midias de teste (video/imagens grandes usadas so para validacao manual)
+midias/
+
+# PKLot: dataset bruto e artefatos gerados pelos scripts de conversao/treino
+# (grandes e 100% reproduziveis a partir de convert_to_yolo_obb.py /
+# build_car_only_dataset.py / build_pilot_dataset.py + o dataset original do
+# PKLot, baixado via Hugging Face / FiftyOne)
+PKLot/data/
+PKLot/images/
+PKLot/labels/
+PKLot/car_only/
+PKLot/external_data/
+PKLot/samples.json
+PKLot/pklot-mq.gif
+PKLot/*.cache
+PKLot/*.txt
