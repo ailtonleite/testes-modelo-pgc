@@ -1,7 +1,7 @@
 # Detecção de veículos em estacionamentos com YOLO11-OBB e o dataset PKLot
 
-**Última atualização:** 2026-09-28
-**Status atual:** detector "só carro" (PKLot + CARPK, 1 classe) treinado e **validado com sucesso** — melhora real de generalização confirmada na foto externa. Próxima frente: classificador de ocupação de vaga (Rota 2, seção 16).
+**Última atualização:** 2026-10-07
+**Status atual:** detector "só carro" (PKLot + CARPK, 1 classe) treinado e **validado com sucesso** — melhora real de generalização confirmada na foto externa. Dataset enriquecido com uma terceira fonte (ACPDS, seção 17); novo fine-tuning pronto, aguardando execução. Próxima frente: classificador de ocupação de vaga (Rota 2, seção 16). Migração dos próximos treinos para o Google Colab está sendo avaliada (seção 20).
 
 Este documento resume o trabalho realizado até aqui no projeto, servindo como contexto para continuidade e como rascunho de base para a documentação do TCC.
 
@@ -239,15 +239,61 @@ Detecção automática das vagas (sem calibração manual), agrupando posições
 
 **Estado:** planejado, ainda não iniciado — depende da conclusão e validação do treino da seção 14.
 
-## 17. Próximos passos
+## 17. Enriquecimento adicional do detector de veículo: dataset ACPDS
+
+Mesmo com o resultado positivo da seção 15, os dois datasets usados até aqui ainda têm diversidade de localização limitada: PKLot são só 3 câmeras fixas (repetidas 12 mil vezes), CARPK são só 4 locais (repetidos ~360 vezes cada). Pesquisado e integrado um terceiro dataset desenhado especificamente para testar generalização.
+
+### ACPDS (Action-Camera Parking Dataset)
+
+- Fonte: Marek (2021), *Image-Based Parking Space Occupancy Classification: Dataset and Baseline*, arXiv:2107.12207. Código e dataset: [github.com/martin-marek/parking-space-occupancy](https://github.com/martin-marek/parking-space-occupancy) (licença MIT).
+- **293 imagens, 11.236 vagas anotadas, 47,8% ocupadas** — e cada imagem é uma localização *distinta* ("dezenas de estacionamentos e ruas diferentes"), ao contrário do PKLot/CARPK, onde um número pequeno de câmeras se repete centenas/milhares de vezes. É exatamente o tipo de diversidade que faltava.
+- Câmera: GoPro Hero 6 numa vara telescópica de ~10-12m (altura de poste de iluminação) — uma terceira altura/ângulo de captura, distinta da câmera de prédio do PKLot e do drone a 40m do CARPK. Outdoor, inclui estacionamento de rua (não só lotes dedicados).
+- Formato de anotação: quadrilátero de 4 pontos normalizado [0,1] + booleano de ocupação — **praticamente idêntico ao formato do PKLot**. Validado: zero anotações corrompidas (293/293 imagens válidas, diferente do PKLot que teve 274 imagens com pontos vazios).
+- Já vem dividido em train/valid/test por estacionamento distinto, pelo próprio autor — o split "test" é propositalmente de locais nunca vistos em train/valid (usado no paper original para medir generalização).
+- Download: zip direto (380MB), sem precisar de conta Kaggle/Hugging Face — mais simples que os outros dois.
+
+### Conversão
+
+Script: [`PKLot/convert_acpds_to_obb.py`](../PKLot/convert_acpds_to_obb.py)
+
+- Mapeia `occupancy == True` → classe `0` (`car`), `False` → classe `1` (`vacant`) — mesmo esquema do `convert_to_yolo_obb.py` do PKLot.
+- Gera labels em `external_data/acpds/extracted/labels/`, mais `train.txt`/`val.txt`/`test.txt` e `data.yaml`.
+- **`test.txt` mantido deliberadamente fora do treino** — reservado como conjunto de avaliação de generalização (estacionamentos nunca vistos em train/valid nem em nenhuma outra fonte do projeto).
+- Não precisou de junction: diferente do PKLot/CARPK, as imagens do ACPDS já ficam numa pasta real chamada `images/` (não aponta pra outro lugar), então a troca `images`↔`labels` do Ultralytics funciona direto, sem link nenhum.
+- Validado: 11.236 caixas escritas (5.376 `car` / 5.860 `vacant`), batendo exatamente com os números do paper.
+
+### Integração ao dataset "só carro"
+
+[`PKLot/build_car_only_dataset.py`](../PKLot/build_car_only_dataset.py) atualizado para incluir uma terceira fonte:
+
+- Filtra os labels do ACPDS mantendo só a classe `car` (mesmo padrão já usado pro PKLot).
+- Nova junction `external_data/acpds/extracted/car_only/images` → `.../images`.
+- Novo total: **11.543 imagens de treino** (10.323 PKLot + 989 CARPK + 231 ACPDS) / **2.313 de validação** (1.819 + 459 + 35) — incremento modesto em volume (~2%), mas desproporcional em diversidade de localização.
+
+Smoke test confirmou que a mistura de 3 fontes (JPG do PKLot, PNG do CARPK, JPG do ACPDS, resoluções diferentes) carrega e treina sem erro.
+
+### Novo treino: fine-tuning a partir do modelo atual
+
+Script: [`PKLot/train_car_only_acpds.py`](../PKLot/train_car_only_acpds.py)
+
+- Parte do `best.pt` já treinado (`car_only_pklot_carpk`), **não do zero** — decisão deliberada: como o incremento de volume é pequeno, fine-tuning sobre o modelo já convergido é mais eficiente que re-treinar do zero a partir do `yolo11l-obb.pt`.
+- `epochs=30`, `patience=10` (bem menos que as 60 épocas do treino anterior, por ser um ajuste sobre um modelo já convergido, não um treino novo).
+- Mesmos mecanismos de retomada (`resume=True` automático) e log de progresso dos scripts anteriores.
+- Smoke test confirmou carregamento correto do `best.pt` e métricas já altas desde a primeira época (esperado, dado que parte de um modelo já convergido).
+
+**Estado:** script pronto e validado por smoke test, **ainda não executado** — próximo passo é rodar `train_car_only_acpds.py` de verdade.
+
+## 18. Próximos passos
 
 1. ~~Aguardar a conclusão do treino `train_car_only.py`~~ — **concluído** (seção 14).
-2. ~~Validar o resultado na foto que já falhou antes~~ — **concluído, generalização confirmada** (seção 15). Ainda pendente, se houver tempo: testar em algo indoor e algo de câmera bem próxima, para checar os gaps previstos.
-3. Iniciar a Rota 2 da seção 16: recortar vagas do PKLot a partir de `samples.json` (polígono + `occupancy_status`) e treinar o classificador de ocupação. **← próximo passo imediato.**
-4. Montar a camada de aplicação: calibração manual de vagas por câmera (coordenadas salvas em arquivo), overlay de ocupação (verde/vermelho) e loop de vídeo para tempo real.
-5. Documentar explicitamente, na metodologia/limitações do TCC, o escopo coberto (câmeras elevadas/aéreas, externas, luz do dia) e o que fica como trabalho futuro (ambientes indoor, detecção automática de vaga via clustering).
+2. ~~Validar o resultado na foto que já falhou antes~~ — **concluído, generalização confirmada** (seção 15).
+3. ~~Pesquisar e integrar uma terceira fonte de dados~~ — **concluído** (ACPDS, seção 17). **Rodar `train_car_only_acpds.py` é o próximo passo imediato.**
+4. Depois do treino acima: revalidar na foto externa + testar no `test.txt` reservado do ACPDS (estacionamentos nunca vistos em nenhuma fonte de treino) + se houver tempo, testar em algo indoor e algo de câmera bem próxima, para checar os gaps que seguem em aberto.
+5. Iniciar a Rota 2 da seção 16: recortar vagas do PKLot a partir de `samples.json` (polígono + `occupancy_status`) e treinar o classificador de ocupação.
+6. Montar a camada de aplicação: calibração manual de vagas por câmera (coordenadas salvas em arquivo), overlay de ocupação (verde/vermelho) e loop de vídeo para tempo real.
+7. Documentar explicitamente, na metodologia/limitações do TCC, o escopo coberto (câmeras elevadas/aéreas, externas, luz do dia) e o que fica como trabalho futuro (ambientes indoor, detecção automática de vaga via clustering).
 
-## 18. Arquivos e caminhos de referência
+## 19. Arquivos e caminhos de referência
 
 | Arquivo | Descrição |
 |---|---|
@@ -256,19 +302,49 @@ Detecção automática das vagas (sem calibração manual), agrupando posições
 | `PKLot/runs_obb/pklot_car_vacant/` | Saída do treino baseline (pesos, métricas, plots) |
 | `PKLot/build_pilot_dataset.py` | Monta o dataset do piloto de 2 classes (PKLot + CARPK) — experimento intermediário, superado |
 | `PKLot/train_pilot.py` | Fine-tuning piloto de 15 épocas a partir do `best.pt` — não chegou a ser executado |
-| `PKLot/build_car_only_dataset.py` | Monta o dataset "só carro" (PKLot filtrado + CARPK), 1 classe |
+| `PKLot/build_car_only_dataset.py` | Monta o dataset "só carro" (PKLot filtrado + CARPK + ACPDS filtrado), 1 classe |
 | `PKLot/train_car_only.py` | Treino do detector genérico de veículo (1 classe), a partir do `yolo11l-obb.pt` — **concluído e validado** |
 | `PKLot/runs_obb/car_only_pklot_carpk/weights/best.pt` | **Modelo atual recomendado** — detector de veículo genérico (1 classe `car`), generalização confirmada |
-| `PKLot/car_only_data.yaml`, `car_only_train.txt`, `car_only_val.txt` | Configuração e listas do dataset "só carro" |
+| `PKLot/car_only_data.yaml`, `car_only_train.txt`, `car_only_val.txt` | Configuração e listas do dataset "só carro" (agora PKLot+CARPK+ACPDS) |
 | `PKLot/external_data/carpk/` | Dataset CARPK extraído (drone, Taiwan) |
+| `PKLot/external_data/acpds/extracted/` | Dataset ACPDS extraído (GoPro em poste, dezenas de locais distintos) |
+| `PKLot/convert_acpds_to_obb.py` | Conversão ACPDS → labels YOLO-OBB (2 classes) |
+| `PKLot/train_car_only_acpds.py` | Fine-tuning a partir do `best.pt` atual, incluindo ACPDS — **pronto, ainda não executado** |
 | `backups/pklot_car_vacant_baseline_2026-09-17/` | Backup do modelo baseline 2-classes (pesos + scripts + logs) |
 | `testes.py` (raiz do projeto) | Script de inferência de demonstração |
 | `midias/estacionamento-empresas-capa.jpg` | Foto externa usada como teste de generalização fora do PKLot |
 | `midias/estacionamento_capa_car_only_result.jpg` | Resultado anotado do teste de generalização (22 detecções corretas, ver seção 15) |
 
-## 19. Referências usadas
+## 20. Considerações para migrar o treino para o Google Colab
+
+Avaliado (ainda não implementado) rodar os próximos treinos — ex. o classificador de ocupação de vaga da seção 16, ou futuros re-treinos do detector — no Google Colab em vez da máquina local. Revisão dos scripts atuais (`convert_to_yolo_obb.py`, `train_obb.py`, `build_pilot_dataset.py`, `train_pilot.py`, `build_car_only_dataset.py`, `train_car_only.py`, `convert_acpds_to_obb.py`, `train_car_only_acpds.py`) identificou os seguintes pontos de atenção:
+
+1. **Caminhos absolutos do Windows hardcoded.** `train_obb.py` e `train_car_only.py` têm `r"C:\UFABC\TCC\yolo11l-obb.pt"` fixo como modelo base de partida. Precisaria virar um caminho relativo/portável, ou simplesmente deixar o Ultralytics baixar automaticamente pelo nome (`"yolo11l-obb.pt"`).
+
+2. **Directory junctions são exclusivas do Windows.** `convert_to_yolo_obb.py` (`PKLot/images`), `build_car_only_dataset.py` (`PKLot/car_only/images` e, desde a seção 17, `external_data/acpds/extracted/car_only/images`) e `build_pilot_dataset.py` (CARPK `train_obb/images`/`test_obb/images`) dependem de junctions criadas manualmente via PowerShell, fora dos scripts (necessárias para o resolvedor de labels do Ultralytics, que troca `images`↔`labels` no caminho). No Colab (Linux) isso não existe — o equivalente é um **symlink** (`os.symlink`/`ln -s`), que precisaria ser recriado a cada sessão nova, já que o disco local do Colab é efêmero. O `convert_acpds_to_obb.py` é o único que não precisa disso — as imagens do ACPDS já ficam numa pasta real, sem link.
+
+3. **`workers=8` está dimensionado para a máquina local.** O Colab (camada gratuita) costuma oferecer só 2 vCPUs; manter `workers=8` não quebra, mas é exagerado e pode até atrapalhar o desempenho. Melhor reduzir (ex. `workers=2`) ou calcular dinamicamente via `os.cpu_count()`.
+
+4. **`cache=True` em `train_obb.py`** carrega o dataset inteiro em RAM — depende de quanta RAM a instância do Colab tiver disponível (a camada gratuita é mais limitada que a máquina local usada até aqui). Vale reavaliar caso a RAM não seja suficiente.
+
+5. **Persistência é o ponto mais crítico.** Sessões do Colab são efêmeras: o disco local (`/content/...`) some quando a instância recicla (desconexão por inatividade, ~90min, ou teto de sessão, ~12h na camada gratuita). Isso afeta diretamente:
+   - Os checkpoints em `runs_obb/.../weights/{best,last}.pt` — se não forem salvos em um local persistente, o mecanismo de retomada (`resume=True`, seção 5) que já construímos não tem o que retomar entre sessões.
+   - Solução: montar o Google Drive (`google.colab.drive.mount`) e apontar o `project=` do treino para um caminho dentro do Drive, e/ou commitar e dar `git push` periódico dos `best.pt` para o GitHub (já configurado via Git LFS no repositório, ver histórico de versionamento).
+
+6. **Obtenção dos dados brutos (PKLot + CARPK + ACPDS).** Hoje esses dados vivem só no disco local (fora do Git, nunca foram versionados — ver `.gitignore`). No Colab, cada sessão nova precisaria baixá-los de novo: PKLot via clone do repositório Hugging Face (git + LFS, ~4GB) ou via `fiftyone`/`huggingface_hub`; CARPK via Kaggle, o que exige configurar um token de API do Kaggle na sessão; ACPDS via download direto do zip (mais simples, sem conta — ver seção 17). **Não dá para puxar esses dados pelo repositório GitHub do projeto** — eles nunca foram commitados lá (e ultrapassariam de longe a cota gratuita do Git LFS).
+
+7. **Ambiente/instalação, de modo geral, mais simples que localmente.** Ao contrário da máquina local (onde o PyTorch veio numa build CPU-only e precisou ser reinstalado com suporte a CUDA — seção 3), o runtime com GPU do Colab já vem com PyTorch com CUDA pré-instalado e compatível; bastaria instalar o `ultralytics` (`pip install ultralytics`) e confirmar `torch.cuda.is_available()`.
+
+8. **A GPU disponível é diferente.** O Colab gratuito normalmente oferece uma T4 (mais lenta que a RTX 5070 usada localmente); Colab Pro/Pro+ dá acesso a GPUs melhores (A100/V100) mediante assinatura. Isso afeta diretamente as estimativas de tempo por época já documentadas nas seções 6 e 14.
+
+**Fluxo de trabalho sugerido**, caso a migração avance: montar o Google Drive → clonar o repositório (`git clone` + `git lfs pull`, para continuar a partir de um `best.pt` já treinado) → baixar PKLot, CARPK e ACPDS brutos → instalar `ultralytics` → rodar os mesmos scripts de conversão/treino já existentes, com os ajustes dos itens 1-4 acima.
+
+**Estado:** avaliação registrada, nenhuma mudança de código feita ainda — implementação fica para quando a migração for decidida de fato. Ver também o [guia prático de transferência](guia_levar_modelo_e_continuar_treino.md), que já cobre os três datasets.
+
+## 21. Referências usadas
 
 - Almeida, P. R. et al. (2015). *PKLot – A robust dataset for parking lot classification*. Expert Systems with Applications, 42(11), 4937–4949.
 - Fathurrahman, M., Nugroho, A., & Al Wafi, A. Z. (2025). *Comparative Study of YOLO Versions for Detecting Vacant Car Parking Spaces*. JITK, 10(4). DOI: 10.33480/jitk.v10i4.6236.
 - Grbić, R., & Koch, B. (2023). *Automatic Vision-Based Parking Slot Detection and Occupancy Classification*. arXiv:2308.08192.
 - Hsieh, M.-R., Lin, Y.-L., & Hsu, W. H. (2017). *Drone-based Object Counting by Spatially Regularized Regional Proposal Network* (dataset CARPK). ICCV 2017.
+- Marek, M. (2021). *Image-Based Parking Space Occupancy Classification: Dataset and Baseline* (dataset ACPDS). arXiv:2107.12207.

@@ -5,8 +5,8 @@ from ultralytics import YOLO
 model = YOLO(r"PKLot\runs_obb\car_only_pklot_carpk\weights\best.pt")
 
 # Run inference with the trained model on the image
-#results = model(source="midias/istockphoto-1076003522-612x612.jpg")
-video_path = "midias/12125602_3840_2160_30fps.mp4"
+#results = model(source="midias/istockphoto-1076003522-612x612.jpg") #PARA IMAGEM
+video_path = "midias/12125602_3840_2160_30fps.mp4" #PARA VIDEO
 
 # PARA IMAGEM
 # Exibe a imagem com as detecoes e mantem a janela aberta ate uma tecla ser pressionada
